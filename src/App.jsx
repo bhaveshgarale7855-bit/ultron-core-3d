@@ -251,8 +251,8 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import { Hands } from '@mediapipe/hands';
-import { Camera } from '@mediapipe/camera_utils';
+// import { Hands } from '@mediapipe/hands';
+// import { Camera } from '@mediapipe/camera_utils';
 
 // Soft Round Glowing Texture
 function createCircleTexture() {
