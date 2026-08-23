@@ -453,51 +453,43 @@ import { OrbitControls } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 
-// Color Themes Configuration
+// Color Themes
 const THEMES = {
-  gold: { core: '#ffaa00', outer: [3, 0.8, 0], ring: [10, 8.5, 0.8], bloom: '#ff5500' },
-  blue: { core: '#00d2ff', outer: [0, 1.5, 3], ring: [0.2, 5, 10], bloom: '#00aaff' },
-  red: { core: '#ff0033', outer: [3, 0, 0.2], ring: [10, 0.5, 0.5], bloom: '#ff0000' }
+  gold: { core: '#ffaa00', outer: [3, 0.8, 0], ring: [10, 8.5, 0.8] },
+  blue: { core: '#00d2ff', outer: [0, 1.5, 3], ring: [0.2, 5, 10] },
+  red: { core: '#ff0033', outer: [3, 0, 0.2], ring: [10, 0.5, 0.5] }
 };
 
-// Web Speech Synthesis (AI Voice Response)
+// Speak AI
 function speakAI(text) {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.pitch = 0.8; // Lower pitch for AI tone
+    utterance.pitch = 0.85;
     utterance.rate = 1.0;
-    
-    const voices = window.speechSynthesis.getVoices();
-    const englishVoice = voices.find(v => v.lang.includes('en'));
-    if (englishVoice) utterance.voice = englishVoice;
-
     window.speechSynthesis.speak(utterance);
   }
 }
 
 function createCircleTexture() {
   const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
+  canvas.width = 32;
+  canvas.height = 32;
   const ctx = canvas.getContext('2d');
-
-  const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
   gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-  gradient.addColorStop(0.3, 'rgba(255, 235, 80, 0.9)');
-  gradient.addColorStop(0.7, 'rgba(255, 200, 0, 0.3)');
+  gradient.addColorStop(0.4, 'rgba(255, 200, 0, 0.8)');
   gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
   ctx.fillStyle = gradient;
   ctx.beginPath();
-  ctx.arc(32, 32, 32, 0, Math.PI * 2);
+  ctx.arc(16, 16, 16, 0, Math.PI * 2);
   ctx.fill();
-
   return new THREE.CanvasTexture(canvas);
 }
 
+// Optimized Ring Particles (Reduced to 350 for mobile smoothness)
 function RingParticles({ audioLevel, theme }) {
-  const count = 800;
+  const count = 350;
   const meshRef = useRef();
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
@@ -546,7 +538,7 @@ function RingParticles({ audioLevel, theme }) {
 
   return (
     <instancedMesh ref={meshRef} args={[null, null, count]}>
-      <cylinderGeometry args={[0, 0.5, 1, 8]} />
+      <cylinderGeometry args={[0, 0.5, 1, 6]} />
       <meshBasicMaterial
         color={theme.ring}
         transparent
@@ -559,7 +551,7 @@ function RingParticles({ audioLevel, theme }) {
 }
 
 function FreeFloatingParticles({ circleTexture, theme }) {
-  const count = 100;
+  const count = 60;
   const mesh = useRef();
 
   const [positions, initialPositions] = useMemo(() => {
@@ -648,15 +640,15 @@ function OrbitalRings({ audioLevel, theme }) {
   return (
     <group ref={group}>
       <mesh>
-        <torusGeometry args={[1.35 + audioLevel * 0.3, 0.015, 16, 100]} />
+        <torusGeometry args={[1.35 + audioLevel * 0.3, 0.015, 12, 60]} />
         <meshBasicMaterial color={theme.ring} toneMapped={false} />
       </mesh>
       <mesh>
-        <torusGeometry args={[1.55 + audioLevel * 0.4, 0.012, 16, 100]} />
+        <torusGeometry args={[1.55 + audioLevel * 0.4, 0.012, 12, 60]} />
         <meshBasicMaterial color={theme.ring} toneMapped={false} />
       </mesh>
       <mesh>
-        <torusGeometry args={[1.75 + audioLevel * 0.2, 0.01, 16, 100]} />
+        <torusGeometry args={[1.75 + audioLevel * 0.2, 0.01, 12, 60]} />
         <meshBasicMaterial color={theme.ring} toneMapped={false} />
       </mesh>
     </group>
@@ -679,12 +671,12 @@ function GlowingCore({ audioLevel, theme }) {
   return (
     <group>
       <mesh ref={coreRef}>
-        <sphereGeometry args={[0.6, 32, 32]} />
+        <sphereGeometry args={[0.6, 24, 24]} />
         <meshBasicMaterial color={theme.core} />
       </mesh>
 
       <mesh>
-        <sphereGeometry args={[0.85, 32, 32]} />
+        <sphereGeometry args={[0.85, 24, 24]} />
         <meshBasicMaterial
           color={theme.outer}
           transparent
@@ -697,6 +689,7 @@ function GlowingCore({ audioLevel, theme }) {
   );
 }
 
+// Light-weight Hand Tracking Controller (Prevents Lag)
 function HandController({ onHandMove }) {
   const videoRef = useRef(null);
 
@@ -712,7 +705,7 @@ function HandController({ onHandMove }) {
 
     hands.setOptions({
       maxNumHands: 1,
-      modelComplexity: 1,
+      modelComplexity: 0, // Set to 0 for maximum mobile performance (No Lag)
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
@@ -741,8 +734,8 @@ function HandController({ onHandMove }) {
         onFrame: async () => {
           await hands.send({ image: videoRef.current });
         },
-        width: 480,
-        height: 360,
+        width: 320, // Low resolution for smooth lag-free performance
+        height: 240,
         facingMode: 'user',
       });
       camera.start();
@@ -777,16 +770,37 @@ export default function App() {
   const circleTexture = useMemo(() => createCircleTexture(), []);
   const theme = THEMES[currentThemeKey];
 
-  // Gesture Pinch Dynamic Theme Switching
+  // Gesture Pinch Thresholds for Themes
   useEffect(() => {
-    if (handData.distance > 0.05 && handData.distance < 0.12) {
+    if (handData.distance > 0.01 && handData.distance < 0.1) {
       setCurrentThemeKey('blue');
-    } else if (handData.distance >= 0.12 && handData.distance < 0.25) {
+    } else if (handData.distance >= 0.1 && handData.distance < 0.22) {
       setCurrentThemeKey('gold');
-    } else if (handData.distance >= 0.25) {
+    } else if (handData.distance >= 0.22) {
       setCurrentThemeKey('red');
     }
   }, [handData.distance]);
+
+  // Voice Command Listener ("Hello", "Ultron", "Jarvis")
+  const startSpeechRecognition = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        const lastIndex = event.results.length - 1;
+        const command = event.results[lastIndex][0].transcript.toLowerCase();
+
+        if (command.includes('hello') || command.includes('ultron') || command.includes('jarvis')) {
+          speakAI("Systems online, Boss. How can I assist you?");
+        }
+      };
+
+      recognition.start();
+    }
+  };
 
   const startMic = async () => {
     try {
@@ -805,8 +819,8 @@ export default function App() {
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       setIsListening(true);
 
-      // Trigger AI Speech Welcome Response
-      speakAI("Ultron core initialized. Systems operational.");
+      // Start actual voice recognition when active
+      startSpeechRecognition();
 
       const updateAudio = () => {
         analyser.getByteFrequencyData(dataArray);
@@ -855,7 +869,7 @@ export default function App() {
         </button>
       )}
 
-      {/* Mode Status Indicator */}
+      {/* On-Screen Status HUD */}
       {isListening && (
         <div style={{
           position: 'absolute',
@@ -863,19 +877,20 @@ export default function App() {
           left: '20px',
           color: theme.core,
           fontFamily: 'monospace',
-          fontSize: '14px',
+          fontSize: '12px',
           zIndex: 10,
           textTransform: 'uppercase',
-          letterSpacing: '2px',
-          textShadow: `0 0 10px ${theme.core}`
+          letterSpacing: '1px',
+          textShadow: `0 0 8px ${theme.core}`
         }}>
-          MODE: {currentThemeKey} PROTOCOL
+          <div>MODE: {currentThemeKey} PROTOCOL</div>
+          <div style={{ marginTop: '4px', opacity: 0.7 }}>SAY: "HELLO" OR "ULTRON"</div>
         </div>
       )}
 
       <Canvas
         camera={{ position: [0, 0, 4.2], fov: 60 }}
-        gl={{ antialias: true, toneMapping: THREE.NoToneMapping }}
+        gl={{ antialias: false, toneMapping: THREE.NoToneMapping }}
       >
         <color attach="background" args={['#000000']} />
         <OrbitControls enableZoom={true} enablePan={false} />
@@ -889,10 +904,10 @@ export default function App() {
 
         <EffectComposer>
           <Bloom
-            intensity={2.2}
+            intensity={1.8}
             luminanceThreshold={0.85}
             luminanceSmoothing={0.9}
-            mipmapBlur
+            mipmapBlur={false}
           />
         </EffectComposer>
       </Canvas>
