@@ -491,12 +491,23 @@ const THEMES = {
 
 function speakAI(text) {
   if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
+    window.speechSynthesis.cancel(); // Clear queued speech
+
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.pitch = 0.85;
+    utterance.pitch = 1.0;
     utterance.rate = 1.0;
     utterance.lang = 'en-US';
+
+    // Wait for voices to load if needed
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      utterance.voice = voices.find(v => v.lang.includes('en')) || voices[0];
+    }
+
     window.speechSynthesis.speak(utterance);
+    console.log("AI Speaking:", text);
+  } else {
+    console.error("Speech Synthesis API not available");
   }
 }
 
@@ -810,22 +821,30 @@ export default function App() {
   const theme = THEMES[currentThemeKey];
 
   const handleCommand = (cmd) => {
-    const cleanCmd = cmd.toLowerCase();
+    console.log("Raw Command Received:", cmd);
+    const cleanCmd = cmd.trim().toLowerCase();
     setLastHeardText(`Heard: "${cmd}"`);
 
-    if (cleanCmd.includes('hello') || cleanCmd.includes('ultron') || cleanCmd.includes('jarvis') || cleanCmd.includes('hi')) {
+    if (
+      cleanCmd.includes('hello') ||
+      cleanCmd.includes('ultron') ||
+      cleanCmd.includes('jarvis') ||
+      cleanCmd.includes('hi')
+    ) {
       speakAI("Systems online, Boss. How can I assist you?");
+    } else {
+      speakAI("Command received: " + cleanCmd);
     }
   };
-
+  
   const startAudioAndSpeech = async () => {
     setIsInitialized(true);
     setLastHeardText("Initializing Systems...");
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: true, 
-        video: { facingMode: 'user' } 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { facingMode: 'user' }
       });
 
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -914,7 +933,7 @@ export default function App() {
           alignItems: 'center',
           justifyContent: 'center'
         }}>
-          <button 
+          <button
             onClick={startAudioAndSpeech}
             style={{
               padding: '16px 32px',
