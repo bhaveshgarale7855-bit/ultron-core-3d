@@ -803,7 +803,8 @@ export default function App() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [currentThemeKey, setCurrentThemeKey] = useState('red');
   const [handData, setHandData] = useState({ handX: 0, handY: 0, distance: 0.2 });
-  const [lastHeardText, setLastHeardText] = useState('Listening continuously...');
+  const [lastHeardText, setLastHeardText] = useState('Click Core to Start...');
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const circleTexture = useMemo(() => createCircleTexture(), []);
   const theme = THEMES[currentThemeKey];
@@ -817,89 +818,123 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    let recognition = null;
-    let isStoppedManually = false;
+  const startAudioAndSpeech = async () => {
+    setIsInitialized(true);
+    setLastHeardText("Initializing Systems...");
 
-    // Direct initialization on App Start
-    const initSpeechAndMic = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: true, 
-          video: { facingMode: 'user' } 
-        });
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: true, 
+        video: { facingMode: 'user' } 
+      });
 
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const analyser = audioContext.createAnalyser();
-        const source = audioContext.createMediaStreamSource(stream);
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      await audioContext.resume();
 
-        analyser.fftSize = 64;
-        source.connect(analyser);
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(stream);
 
-        const updateAudio = () => {
-          analyser.getByteFrequencyData(dataArray);
-          let sum = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            sum += dataArray[i];
-          }
-          const average = sum / dataArray.length;
-          setAudioLevel(average / 128);
-          requestAnimationFrame(updateAudio);
-        };
-        updateAudio();
+      analyser.fftSize = 64;
+      source.connect(analyser);
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-        // Android Robust Speech Recognition Engine
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRecognition) {
-          recognition = new SpeechRecognition();
-          recognition.continuous = false; // Fixed: Continuous false is mandatory for Android Chrome!
-          recognition.interimResults = false;
-          recognition.lang = 'en-US';
-
-          recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            handleCommand(transcript);
-          };
-
-          recognition.onerror = (err) => {
-            if (err.error !== 'no-speech') {
-              setLastHeardText(`Listening... (${err.error})`);
-            }
-          };
-
-          // Continuous Restart Loop for Android
-          recognition.onend = () => {
-            if (!isStoppedManually) {
-              try {
-                recognition.start();
-              } catch (e) {
-                // Ignore quick restart collisions
-              }
-            }
-          };
-
-          recognition.start();
-        } else {
-          setLastHeardText("Speech API not supported in WebView!");
+      const updateAudio = () => {
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i];
         }
-      } catch (err) {
-        setLastHeardText("Mic Access Error: " + err.message);
+        const average = sum / dataArray.length;
+        setAudioLevel(average / 128);
+        requestAnimationFrame(updateAudio);
+      };
+      updateAudio();
+
+      // Web Speech API Integration
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        recognition.onstart = () => {
+          setLastHeardText("Listening continuously...");
+        };
+
+        recognition.onresult = (event) => {
+          const lastIndex = event.results.length - 1;
+          const transcript = event.results[lastIndex][0].transcript;
+          handleCommand(transcript);
+        };
+
+        recognition.onerror = (err) => {
+          if (err.error !== 'no-speech') {
+            setLastHeardText(`Listening Status: ${err.error}`);
+          }
+        };
+
+        recognition.onend = () => {
+          try {
+            recognition.start();
+          } catch (e) {
+            // Ignore re-start collisions
+          }
+        };
+
+        recognition.start();
+      } else {
+        setLastHeardText("Speech API not supported in browser!");
       }
-    };
 
-    initSpeechAndMic();
-
-    return () => {
-      isStoppedManually = true;
-      if (recognition) recognition.stop();
-    };
-  }, []);
+      speakAI("Ultron Core Active");
+    } catch (err) {
+      setLastHeardText("Permission Denied / Mic Error!");
+      console.error(err);
+    }
+  };
 
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#000000', position: 'relative', overflow: 'hidden' }}>
 
       <HandController onHandMove={setHandData} onSignalChange={setCurrentThemeKey} />
+
+      {/* Start Button Overlay (Unlocks Browser Restrictions) */}
+      {!isInitialized && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          backgroundColor: 'rgba(0,0,0,0.85)',
+          zIndex: 100,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <button 
+            onClick={startAudioAndSpeech}
+            style={{
+              padding: '16px 32px',
+              fontSize: '18px',
+              fontFamily: 'monospace',
+              fontWeight: 'bold',
+              color: '#00d2ff',
+              backgroundColor: 'transparent',
+              border: '2px solid #00d2ff',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              boxShadow: '0 0 15px #00d2ff',
+              textTransform: 'uppercase',
+              letterSpacing: '2px'
+            }}
+          >
+            INITIALIZE ULTRON CORE
+          </button>
+        </div>
+      )}
 
       <div style={{
         position: 'absolute',
