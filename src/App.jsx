@@ -489,25 +489,39 @@ const THEMES = {
   red: { name: 'WEAK / NO SIGNAL', core: '#ff0033', outer: [3, 0, 0.2], ring: [10, 0.5, 0.5] }
 };
 
+// Global variables for Feedback Control & State Lock
+let isAISpeaking = false;
+let globalRecognition = null;
+
 function speakAI(text) {
   if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel(); // Clear queued speech
+    isAISpeaking = true;
+    window.speechSynthesis.cancel();
+
+    if (globalRecognition) {
+      try { globalRecognition.stop(); } catch (e) { }
+    }
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.pitch = 1.0;
     utterance.rate = 1.0;
     utterance.lang = 'en-US';
 
-    // Wait for voices to load if needed
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      utterance.voice = voices.find(v => v.lang.includes('en')) || voices[0];
-    }
+    utterance.onend = () => {
+      // Resume listening AFTER AI finishes speaking
+      setTimeout(() => {
+        isAISpeaking = false;
+        if (globalRecognition) {
+          try { globalRecognition.start(); } catch (e) { }
+        }
+      }, 400);
+    };
+
+    utterance.onerror = () => {
+      isAISpeaking = false;
+    };
 
     window.speechSynthesis.speak(utterance);
-    console.log("AI Speaking:", text);
-  } else {
-    console.error("Speech Synthesis API not available");
   }
 }
 
@@ -556,9 +570,9 @@ function RingParticles({ audioLevel, theme }) {
     return temp;
   }, [count]);
 
-  useFrame(({ clock }) => {
+  useFrame((state) => {
     if (!meshRef.current) return;
-    const t = clock.getElapsedTime();
+    const t = state.clock.getElapsedTime();
 
     particles.forEach((p, i) => {
       dummy.position.copy(p.pos);
@@ -619,8 +633,8 @@ function FreeFloatingParticles({ circleTexture, theme }) {
     return [pos, initPos];
   }, [count]);
 
-  useFrame(({ clock }) => {
-    const t = clock.getElapsedTime();
+  useFrame((state) => {
+    const t = state.clock.getElapsedTime();
     if (mesh.current) {
       const positionsAttr = mesh.current.geometry.attributes.position;
 
@@ -662,8 +676,8 @@ function FreeFloatingParticles({ circleTexture, theme }) {
 function OrbitalRings({ audioLevel, theme }) {
   const group = useRef();
 
-  useFrame(({ clock }) => {
-    const t = clock.getElapsedTime();
+  useFrame((state) => {
+    const t = state.clock.getElapsedTime();
     if (group.current) {
       group.current.children[0].rotation.x = t * 0.9;
       group.current.children[0].rotation.y = t * 0.6;
@@ -697,8 +711,8 @@ function OrbitalRings({ audioLevel, theme }) {
 function GlowingCore({ audioLevel, theme }) {
   const coreRef = useRef();
 
-  useFrame(({ clock }) => {
-    const t = clock.getElapsedTime();
+  useFrame((state) => {
+    const t = state.clock.getElapsedTime();
     const heartbeat = Math.sin(t * 3.5) * 0.06 + 0.55;
     const finalScale = heartbeat + audioLevel * 0.7;
 
@@ -821,10 +835,14 @@ export default function App() {
   const theme = THEMES[currentThemeKey];
 
   const handleCommand = (cmd) => {
-    console.log("Raw Command Received:", cmd);
     const cleanCmd = cmd.trim().toLowerCase();
-    setLastHeardText(`Heard: "${cmd}"`);
 
+    // Noise Filter & Lock check
+    if (!cleanCmd || cleanCmd.length < 3 || isAISpeaking) return;
+
+    setLastHeardText(`Heard: "${cleanCmd}"`);
+
+    // Command Filter
     if (
       cleanCmd.includes('hello') ||
       cleanCmd.includes('ultron') ||
@@ -832,19 +850,21 @@ export default function App() {
       cleanCmd.includes('hi')
     ) {
       speakAI("Systems online, Boss. How can I assist you?");
-    } else {
-      speakAI("Command received: " + cleanCmd);
     }
   };
-  
+
   const startAudioAndSpeech = async () => {
     setIsInitialized(true);
     setLastHeardText("Initializing Systems...");
 
     try {
+      // 1. Audio Stream Request with Echo Cancellation
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: { facingMode: 'user' }
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
       });
 
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -852,7 +872,6 @@ export default function App() {
 
       const analyser = audioContext.createAnalyser();
       const source = audioContext.createMediaStreamSource(stream);
-
       analyser.fftSize = 64;
       source.connect(analyser);
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -860,55 +879,53 @@ export default function App() {
       const updateAudio = () => {
         analyser.getByteFrequencyData(dataArray);
         let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
-        }
-        const average = sum / dataArray.length;
-        setAudioLevel(average / 128);
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        setAudioLevel((sum / dataArray.length) / 128);
         requestAnimationFrame(updateAudio);
       };
       updateAudio();
 
-      // Web Speech API Integration
+      // 2. Web Speech Engine Initialization
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = false;
-        recognition.lang = 'en-US';
 
-        recognition.onstart = () => {
-          setLastHeardText("Listening continuously...");
-        };
-
-        recognition.onresult = (event) => {
-          const lastIndex = event.results.length - 1;
-          const transcript = event.results[lastIndex][0].transcript;
-          handleCommand(transcript);
-        };
-
-        recognition.onerror = (err) => {
-          if (err.error !== 'no-speech') {
-            setLastHeardText(`Listening Status: ${err.error}`);
-          }
-        };
-
-        recognition.onend = () => {
-          try {
-            recognition.start();
-          } catch (e) {
-            // Ignore re-start collisions
-          }
-        };
-
-        recognition.start();
-      } else {
-        setLastHeardText("Speech API not supported in browser!");
+      if (!SpeechRecognition) {
+        setLastHeardText("Browser WebSpeech Not Supported!");
+        return;
       }
 
+      globalRecognition = new SpeechRecognition();
+      globalRecognition.continuous = false;
+      globalRecognition.interimResults = false;
+      globalRecognition.lang = 'en-US';
+
+      globalRecognition.onstart = () => {
+        if (!isAISpeaking) setLastHeardText("Listening...");
+      };
+
+      globalRecognition.onresult = (event) => {
+        if (isAISpeaking) return;
+        const transcript = event.results[0][0].transcript;
+        handleCommand(transcript);
+      };
+
+      globalRecognition.onerror = (err) => {
+        console.error("Speech Error:", err.error);
+      };
+
+      globalRecognition.onend = () => {
+        // Auto-restart ONLY when AI is not speaking
+        if (!isAISpeaking) {
+          setTimeout(() => {
+            try { globalRecognition.start(); } catch (e) { }
+          }, 300);
+        }
+      };
+
+      globalRecognition.start();
       speakAI("Ultron Core Active");
+
     } catch (err) {
-      setLastHeardText("Permission Denied / Mic Error!");
+      setLastHeardText("Mic Access Denied by Browser/OS!");
       console.error(err);
     }
   };
@@ -918,7 +935,6 @@ export default function App() {
 
       <HandController onHandMove={setHandData} onSignalChange={setCurrentThemeKey} />
 
-      {/* Start Button Overlay (Unlocks Browser Restrictions) */}
       {!isInitialized && (
         <div style={{
           position: 'absolute',
