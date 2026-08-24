@@ -497,8 +497,6 @@ function speakAI(text) {
     utterance.rate = 1.0;
     utterance.lang = 'en-US';
     window.speechSynthesis.speak(utterance);
-  } else {
-    alert("Speech Synthesis not supported in this browser!");
   }
 }
 
@@ -802,11 +800,10 @@ function HandControlledScene({ handData, children }) {
 }
 
 export default function App() {
-  const [isListening, setIsListening] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [currentThemeKey, setCurrentThemeKey] = useState('red');
   const [handData, setHandData] = useState({ handX: 0, handY: 0, distance: 0.2 });
-  const [lastHeardText, setLastHeardText] = useState('Listening...');
+  const [lastHeardText, setLastHeardText] = useState('Listening continuously...');
 
   const circleTexture = useMemo(() => createCircleTexture(), []);
   const theme = THEMES[currentThemeKey];
@@ -820,139 +817,105 @@ export default function App() {
     }
   };
 
-  const startSpeechRecognition = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
+  useEffect(() => {
+    let recognition = null;
+    let isStoppedManually = false;
 
-      recognition.onresult = (event) => {
-        const lastIndex = event.results.length - 1;
-        const transcript = event.results[lastIndex][0].transcript;
-        handleCommand(transcript);
-      };
+    // Direct initialization on App Start
+    const initSpeechAndMic = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: true, 
+          video: { facingMode: 'user' } 
+        });
 
-      recognition.onerror = (err) => {
-        setLastHeardText(`Speech Error: ${err.error}`);
-      };
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const analyser = audioContext.createAnalyser();
+        const source = audioContext.createMediaStreamSource(stream);
 
-      recognition.start();
-    } else {
-      setLastHeardText("Speech API not supported on this browser!");
-    }
-  };
+        analyser.fftSize = 64;
+        source.connect(analyser);
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-  const startMic = async () => {
-    // Speaker Unlock for Mobile Chrome
-    speakAI("Ultron core initialized.");
+        const updateAudio = () => {
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const average = sum / dataArray.length;
+          setAudioLevel(average / 128);
+          requestAnimationFrame(updateAudio);
+        };
+        updateAudio();
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: true, 
-        video: { facingMode: 'user' } 
-      });
+        // Android Robust Speech Recognition Engine
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          recognition = new SpeechRecognition();
+          recognition.continuous = false; // Fixed: Continuous false is mandatory for Android Chrome!
+          recognition.interimResults = false;
+          recognition.lang = 'en-US';
 
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const analyser = audioContext.createAnalyser();
-      const source = audioContext.createMediaStreamSource(stream);
+          recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            handleCommand(transcript);
+          };
 
-      analyser.fftSize = 64;
-      source.connect(analyser);
+          recognition.onerror = (err) => {
+            if (err.error !== 'no-speech') {
+              setLastHeardText(`Listening... (${err.error})`);
+            }
+          };
 
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      setIsListening(true);
+          // Continuous Restart Loop for Android
+          recognition.onend = () => {
+            if (!isStoppedManually) {
+              try {
+                recognition.start();
+              } catch (e) {
+                // Ignore quick restart collisions
+              }
+            }
+          };
 
-      startSpeechRecognition();
-
-      const updateAudio = () => {
-        analyser.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
+          recognition.start();
+        } else {
+          setLastHeardText("Speech API not supported in WebView!");
         }
-        const average = sum / dataArray.length;
-        setAudioLevel(average / 128);
+      } catch (err) {
+        setLastHeardText("Mic Access Error: " + err.message);
+      }
+    };
 
-        requestAnimationFrame(updateAudio);
-      };
+    initSpeechAndMic();
 
-      updateAudio();
-    } catch (err) {
-      alert("Mic/Camera Error: " + err.message);
-    }
-  };
+    return () => {
+      isStoppedManually = true;
+      if (recognition) recognition.stop();
+    };
+  }, []);
 
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#000000', position: 'relative', overflow: 'hidden' }}>
 
       <HandController onHandMove={setHandData} onSignalChange={setCurrentThemeKey} />
 
-      {!isListening && (
-        <button
-          onClick={startMic}
-          style={{
-            position: 'absolute',
-            top: '30px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 10,
-            padding: '12px 28px',
-            backgroundColor: '#ff5500',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '30px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            boxShadow: '0 0 25px #ff5500',
-            letterSpacing: '1px'
-          }}
-        >
-          INITIALIZE ULTRON CORE
-        </button>
-      )}
-
-      {isListening && (
-        <>
-          <div style={{
-            position: 'absolute',
-            top: '20px',
-            left: '20px',
-            color: theme.core,
-            fontFamily: 'monospace',
-            fontSize: '12px',
-            zIndex: 10,
-            textTransform: 'uppercase',
-            letterSpacing: '1px',
-            textShadow: `0 0 8px ${theme.core}`
-          }}>
-            <div>HAND TRACKING: {theme.name}</div>
-            <div style={{ marginTop: '6px', color: '#fff', fontWeight: 'bold' }}>{lastHeardText}</div>
-          </div>
-
-          {/* Test Voice Manual Trigger Button */}
-          <button
-            onClick={() => handleCommand('hello')}
-            style={{
-              position: 'absolute',
-              bottom: '30px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 10,
-              padding: '10px 20px',
-              backgroundColor: 'rgba(0,210,255,0.2)',
-              color: '#00d2ff',
-              border: '1px solid #00d2ff',
-              borderRadius: '20px',
-              fontWeight: 'bold',
-              fontSize: '12px'
-            }}
-          >
-            TEST SPEAK "HELLO"
-          </button>
-        </>
-      )}
+      <div style={{
+        position: 'absolute',
+        top: '20px',
+        left: '20px',
+        color: theme.core,
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        zIndex: 10,
+        textTransform: 'uppercase',
+        letterSpacing: '1px',
+        textShadow: `0 0 8px ${theme.core}`
+      }}>
+        <div>HAND TRACKING: {theme.name}</div>
+        <div style={{ marginTop: '6px', color: '#fff', fontWeight: 'bold' }}>{lastHeardText}</div>
+      </div>
 
       <Canvas
         camera={{ position: [0, 0, 4.2], fov: 60 }}
